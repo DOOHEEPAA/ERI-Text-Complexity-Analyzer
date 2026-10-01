@@ -1,0 +1,7 @@
+kiwipiepy>=0.17
+openpyxl>=3.1
+numpy>=1.24
+# 선택: 워드(.docx) 지문을 읽으려면
+# python-docx>=1.0
+# 테스트
+# pytest>=7
