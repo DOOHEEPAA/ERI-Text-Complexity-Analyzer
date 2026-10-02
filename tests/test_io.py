@@ -103,3 +103,45 @@ def test_report_and_recalc_roundtrip(tmp_path, kiwi, mini_vocab):
     assert row["정성 지수(평균)"] == 0.5
     assert row["ERI"] == round(row["정량 지수"] + 0.5, 1)
     assert row["학년·단계"]
+
+
+def _docx(path, body_xml):
+    import zipfile
+    ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("word/document.xml", f"<w:document {ns}><w:body>{body_xml}</w:body></w:document>")
+
+
+def _p(text):
+    return f"<w:p><w:r><w:t>{text}</w:t></w:r></w:p>"
+
+
+def _row(*cells):
+    return "<w:tr>" + "".join(f"<w:tc>{''.join(_p(t) for t in c.split('|'))}</w:tc>" for c in cells) + "</w:tr>"
+
+
+def test_docx_template_file_in_repo():
+    ps = load_passages("견본/지문_입력_견본.docx")
+    assert [(p.title, p.level) for p in ps] == [("개구리의 겨울은 잠자는 시간", "초등"), ("수요와 공급", "중등")]
+    assert all(len(p.text.split()) > 90 for p in ps)
+
+
+def test_docx_tables_merged_or_blank(tmp_path):
+    # 표 두 개가 하나로 붙은 경우 + 내용이 빈 표 + 표 밖 안내문
+    body = (_p("안내문: 이 글은 무시된다.")
+            + "<w:tbl>" + _row("제목", "첫 지문") + _row("학교급|초등 / 중등", "초등") + _row("내용", "첫 문단.|둘째 문단.")
+            + _row("제목:", "둘째 지문") + _row("학교급", "") + _row("내용", "본문이다.") + "</w:tbl>"
+            + "<w:tbl>" + _row("제목", "") + _row("학교급", "") + _row("내용", "") + "</w:tbl>")
+    _docx(tmp_path / "a.docx", body)
+    ps = load_passages(tmp_path / "a.docx")
+    assert [(p.title, p.level, p.text) for p in ps] == [
+        ("첫 지문", "초등", "첫 문단.\n둘째 문단."), ("둘째 지문", None, "본문이다.")]
+
+
+def test_docx_paragraph_labels(tmp_path):
+    _docx(tmp_path / "b.docx", _p("제목: 가 지문") + _p("학교급: 중등") + _p("내용: 첫 줄이다.") + _p("이어진다.")
+          + _p("제목: 나 지문") + _p("내용: 둘째다."))
+    ps = load_passages(tmp_path / "b.docx")
+    assert [(p.title, p.level) for p in ps] == [("가 지문", "중등"), ("나 지문", None)]
+    assert ps[0].text == "첫 줄이다.\n이어진다."
