@@ -43,14 +43,22 @@ def _eojeols(tokens):
     return groups
 
 
-def extract_words(kiwi_tokens, text: str, vocab, count_proper_nouns=True) -> list[Word]:
-    """문장 하나의 kiwi 토큰에서 단어(표제어) 목록을 뽑는다. 순서 유지, 중복 포함."""
+def extract_words(kiwi_tokens, text: str, vocab, count_proper_nouns=True, kiwi=None) -> list[Word]:
+    """문장 하나의 kiwi 토큰에서 단어(표제어) 목록을 뽑는다. 순서 유지, 중복 포함.
+
+    kiwi를 주면, 「감자 먹는 사람들」처럼 괄호로 묶여 띄어쓰기를 포함한 고유명사 하나로
+    분석된 작품명 안의 단어(감자, 먹다, 사람)를 따로 센다."""
     words = []
     for ej in _eojeols(kiwi_tokens):
         tags = [base_tag(t.tag) for t in ej]
         i, n = 0, len(ej)
         while i < n:
             tg = tags[i]
+            if tg == "NNP" and " " in ej[i].form and kiwi is not None:
+                inner = ej[i].form
+                words += extract_words(kiwi.tokenize(inner), inner, vocab, count_proper_nouns)
+                i += 1
+                continue
             # 1) 명사·어근 덩어리 (+접사) → 최장 일치, 뒤에 하다/되다 등이 붙으면 파생어
             if tg in NOUNISH or tg in AFFIX or (tg in ("MAG",) and i + 1 < n and tags[i + 1] in DERIV):
                 j = i

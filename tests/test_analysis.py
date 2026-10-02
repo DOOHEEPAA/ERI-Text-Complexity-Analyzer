@@ -77,3 +77,25 @@ def test_sample_uses_whole_sentences_near_100_eojeol():
 def test_short_text_uses_everything():
     sents = [Sentence("짧은 문장이다."), Sentence("또 있다.")]
     assert select_sample(sents) == sents
+
+
+def test_pdf_line_wraps_are_restored(kiwi, mini_vocab):
+    from pathlib import Path
+    from eri.cleanup import clean_text
+    raw = (Path(__file__).parent / "data" / "pdf_wrapped.txt").read_text(encoding="utf-8")
+    text = clean_text(raw, kiwi)
+    for fixed in ("어둡고 칙칙해", "얻은 양식을", "가난하고 고독했다", "미처 방 안을", "그 얼굴은", "분명히 보여",
+                  "노동으로 인해", "가운데 있는 주황색", "생생하게 표현했다", "어떤 주제나"):
+        assert fixed in text, fixed
+    assert "㉠" not in text and "ⓐ" not in text
+    assert "\n-1885년 4월\n" in text           # 짧은 줄(출처 표시)은 그대로 둔다
+    # 줄바꿈을 복원하면 문장 수가 PDF 줄 수가 아니라 실제 문장 수가 된다
+    r = ERIAnalyzer(mini_vocab, cfg, kiwi).analyze(Passage("감자 먹는 사람들", raw, "중등"))
+    assert r.Y <= 13
+    assert "둡" not in r.vocab.words and "감자 먹는 사람들" not in r.vocab.words
+
+
+def test_normal_text_unchanged(kiwi):
+    from eri.cleanup import clean_text
+    text = "첫 문단은 한 줄로 쓴 문단이다. 두 번째 문장도 있다.\n둘째 문단이다."
+    assert clean_text(text, kiwi) == text

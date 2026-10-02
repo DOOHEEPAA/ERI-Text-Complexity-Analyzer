@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import formulas
+from .cleanup import clean_text
 from .complexity import score_sentence
 from .config import ERIConfig
 from .lexical import extract_words, vocab_stats
@@ -61,7 +62,8 @@ class ERIAnalyzer:
             raise ValueError(f"학교급은 '초등' 또는 '중등'이어야 합니다: {level}")
 
         # S110/S210: 100어절 표본 (문장 단위, 도입·중간·끝, 제목 포함)
-        sents = split_sentences(self.kiwi, passage.text)
+        text = clean_text(passage.text, self.kiwi, cfg.join_wrapped_lines, cfg.remove_question_markers)
+        sents = split_sentences(self.kiwi, text)
         if not sents:
             raise ValueError("본문이 비어 있습니다.")
         use_title = cfg.include_title_in_sample and passage.title and not passage.title.startswith("지문 ")
@@ -76,7 +78,7 @@ class ERIAnalyzer:
         # S120/S220: 어휘 (서로 다른 단어 수)
         words = []
         for s in sample:
-            words += extract_words(s.tokens, s.text, self.vocab, cfg.count_proper_nouns)
+            words += extract_words(s.tokens, s.text, self.vocab, cfg.count_proper_nouns, self.kiwi)
         stats = vocab_stats(words, self.vocab, cfg)
 
         # S130: 문장 수, S230: 문장 복잡도 평균

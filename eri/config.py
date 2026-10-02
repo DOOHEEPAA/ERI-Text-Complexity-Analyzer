@@ -39,6 +39,10 @@ class ERIConfig:
     sample_eojeol: int = 100          # 목표 어절 수
     sample_tolerance: float = 0.15    # 전체가 목표의 (1+tolerance)배 이하이면 전체 사용
     include_title_in_sample: bool = True   # 특허 [0201]: 표제도 표본에 포함
+    # PDF·HWP에서 복사할 때 생긴 줄바꿈(단어 중간 끊김 포함)을 복원할지
+    join_wrapped_lines: bool = True
+    # ㉠ ⓐ ① 같은 문제용 기호를 지울지
+    remove_question_markers: bool = True
     # 초등 공식의 Y를 '100어절당 문장 수'로 환산할지 (특허 예시는 환산하지 않음)
     normalize_sentence_count: bool = False
 
