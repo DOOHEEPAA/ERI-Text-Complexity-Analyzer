@@ -29,9 +29,26 @@ ERI = 정량 지수(회귀식) + 정성 지수(평가자 3명의 -3 ~ +3 보정�
 
 Python 3.10 이상이 필요합니다.
 
+**Windows에서 가장 쉬운 방법**: 폴더의 **`ERI_실행.bat`** 을 더블클릭하세요.
+진짜 파이썬을 찾아 처음 한 번 라이브러리를 자동으로 설치한 뒤 프로그램 창을 엽니다.
+파이썬이 없으면 설치 방법을 안내하고 다운로드 페이지를 열어 줍니다.
+
+직접 설치하려면:
+
 ```bash
 pip install -r requirements.txt
 ```
+
+### 실행해도 아무 반응이 없을 때 ('Python'만 출력되고 끝남)
+
+터미널에 `python run_eri.py`를 입력했는데 `Python` 한 줄만 나오고 끝난다면, 진짜 파이썬이 아니라
+Windows의 **Microsoft Store 바로가기**(가짜 python.exe)가 실행된 것입니다.
+프로그램이 제대로 실행되면 첫 줄에 항상 `ERI 계산기 시작 (파이썬 3.x.x: …)`가 출력됩니다.
+
+1. https://www.python.org/downloads/ 에서 파이썬을 설치합니다. 설치 첫 화면에서 **"Add python.exe to PATH"** 를 체크하세요.
+2. Windows 설정 → 앱 → 고급 앱 설정 → **앱 실행 별칭**에서 `python.exe`, `python3.exe`(앱 설치 관리자)를 **끔**으로 바꿉니다.
+3. VS Code를 다시 열고, 오른쪽 아래 **Select Python Interpreter**를 눌러 방금 설치한 파이썬을 고릅니다.
+4. 터미널에서 `py run_eri.py`를 실행하거나 `ERI_실행.bat`을 더블클릭합니다.
 
 ## 3. 준비할 파일 (이름은 상관없음)
 
@@ -56,6 +73,8 @@ pip install -r requirements.txt
 ## 4. 사용 방법
 
 ### 창으로 실행 (권장)
+
+`ERI_실행.bat` 더블클릭, 또는
 
 ```bash
 python run_eri.py
