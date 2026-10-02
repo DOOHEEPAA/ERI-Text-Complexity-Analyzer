@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from . import formulas
 from .cleanup import clean_text
+from .spellcheck import correct_text
 from .complexity import score_sentence
 from .config import ERIConfig
 from .lexical import extract_words, vocab_stats
@@ -32,6 +33,9 @@ class PassageResult:
     eri: float | None = None
     stage: str = ""
     note: str = ""
+    corrections: list = field(default_factory=list)   # cleanup.Correction 목록
+    original_text: str = ""
+    corrected_text: str = ""
 
     @property
     def quant_rounded(self):
@@ -62,7 +66,8 @@ class ERIAnalyzer:
             raise ValueError(f"학교급은 '초등' 또는 '중등'이어야 합니다: {level}")
 
         # S110/S210: 100어절 표본 (문장 단위, 도입·중간·끝, 제목 포함)
-        text = clean_text(passage.text, self.kiwi, cfg.join_wrapped_lines, cfg.remove_question_markers)
+        corrections = []
+        text = self.preprocess(passage.text, corrections)
         sents = split_sentences(self.kiwi, text)
         if not sents:
             raise ValueError("본문이 비어 있습니다.")
@@ -93,9 +98,18 @@ class ERIAnalyzer:
             quant = formulas.quantitative_middle(stats.X2, stats.Z, K, cfg.mid_coef)
 
         r = PassageResult(passage.title, level, sample, eojeol, Y, stats.X1, stats.X2, stats.Z,
-                          K, quant, stats, scores)
+                          K, quant, stats, scores, corrections=corrections,
+                          original_text=passage.text, corrected_text=text)
         self.apply_qualitative(r, [])
         return r
+
+    def preprocess(self, text: str, log=None) -> str:
+        """분석 전 정리: 줄바꿈 복원·기호 삭제 → 맞춤법·띄어쓰기 교정. 고친 내용은 log에 기록."""
+        cfg = self.cfg
+        text = clean_text(text, self.kiwi, cfg.join_wrapped_lines, cfg.remove_question_markers, log)
+        if cfg.auto_correct:
+            text = correct_text(text, self.kiwi, log)
+        return text
 
     def apply_qualitative(self, r: PassageResult, ratings):
         """S170/S180: 정성 지수(평가자 평균)를 더해 최종 ERI와 학년·단계를 구한다."""

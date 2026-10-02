@@ -26,7 +26,7 @@ def result_columns(n_raters):
              "X1(A등급 외 단어 수)", "X2(A등급 단어 수)", "Z(C등급 외 단어 수)", "K(문장 복잡도 평균)",
              "정량 지수"]
             + [rater_header(i + 1) for i in range(n_raters)]
-            + ["정성 지수(평균)", "ERI", "학년·단계", "비고", "표본 텍스트"])
+            + ["정성 지수(평균)", "ERI", "학년·단계", "비고", "교정(건)", "표본 텍스트"])
 
 
 def _grade_class(g, cfg):
@@ -62,14 +62,14 @@ def write_report(results, cfg, path, vocab_source="", agreement=None):
         ws.append([r.title, r.level, r.formula, r.eojeol, r.Y, r.X1, r.X2, r.Z, round(r.K, 2),
                    r.quant_rounded] + ratings[:cfg.rater_count]
                   + [None if r.qual_mean is None else round(r.qual_mean, 2), r.eri, r.stage, r.note,
-                     r.sample_text])
-    widths = [26, 7, 10, 8, 8, 10, 10, 10, 11, 9] + [8] * cfg.rater_count + [10, 8, 22, 26, 70]
+                     len(r.corrections), r.sample_text])
+    widths = [26, 7, 10, 8, 8, 10, 10, 10, 11, 9] + [8] * cfg.rater_count + [10, 8, 22, 26, 8, 70]
     _style_header(ws, widths)
     eri_col = cols.index("ERI") + 1
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             wrap = cell.column == len(cols)
-            cell.alignment = Alignment(horizontal="left" if cell.column in (1, len(cols), len(cols) - 1) else "center",
+            cell.alignment = Alignment(horizontal="left" if cell.column in (1, len(cols), cols.index("비고") + 1) else "center",
                                        vertical="center", wrap_text=wrap)
         row[eri_col - 1].font = ERI_FONT
 
@@ -92,6 +92,9 @@ def write_report(results, cfg, path, vocab_source="", agreement=None):
     for row in wk.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(vertical="center", wrap_text=cell.column in (3, 4, 5))
+
+    # 교정 내역
+    write_corrections(wb, [(r.title, r.corrections, r.original_text, r.corrected_text) for r in results])
 
     # 평가자 일치도
     if agreement is None:
@@ -172,3 +175,67 @@ def recalc_report(path, cfg, out_path=None):
     out = out_path or path
     wb.save(out)
     return Path(out), count
+
+
+# ----------------------------------------------------------------------
+# 교정 내역
+# ----------------------------------------------------------------------
+
+
+def _diff_rich(before: str, after: str):
+    """고치기 전/후 문자열에서 바뀐 글자를 빨간색으로 표시한 서식 있는 텍스트 두 개.
+    지워지거나 생긴 공백은 '␣'로 보이게 한다."""
+    from difflib import SequenceMatcher
+
+    from openpyxl.cell.rich_text import CellRichText, TextBlock
+    from openpyxl.cell.text import InlineFont
+    red_del = InlineFont(color="C00000", strike=True, b=True)
+    red_ins = InlineFont(color="C00000", b=True, u="single")
+    vis = lambda t: t.replace(" ", "␣")
+    old, new = CellRichText(), CellRichText()
+    for op, i1, i2, j1, j2 in SequenceMatcher(None, before, after, autojunk=False).get_opcodes():
+        if op == "equal":
+            old.append(before[i1:i2])
+            new.append(after[j1:j2])
+            continue
+        if i2 > i1:
+            old.append(TextBlock(red_del, vis(before[i1:i2])))
+        if j2 > j1:
+            new.append(TextBlock(red_ins, vis(after[j1:j2])))
+    return old, new
+
+
+def write_corrections(wb, items):
+    """items: (지문명, Correction 목록, 원문, 교정 후 본문)의 목록.
+    '교정 내역'(한 건씩, 바뀐 글자 빨간색)과 '교정된 지문'(전문) 시트를 만든다."""
+    for name in ("교정 내역", "교정된 지문"):
+        if name in wb.sheetnames:
+            del wb[name]
+    wd = wb.create_sheet("교정 내역")
+    wd.append(["지문명", "번호", "종류", "고치기 전", "고친 후", "설명"])
+    total = 0
+    for title, corrections, _, _ in items:
+        for i, c in enumerate(corrections, 1):
+            old, new = _diff_rich(c.before, c.after)
+            wd.append([title, i, c.kind, old, new, c.note])
+            total += 1
+    if total == 0:
+        wd.append(["(고친 곳이 없습니다)"])
+    wd.append([])
+    wd.append(["안내", "", "", "빨간 취소선 = 지운 글자, 빨간 밑줄 = 넣은 글자, ␣ = 공백, ⏎ = 줄바꿈. "
+               "자동 교정은 띄어쓰기와 자주 틀리는 표기만 다루므로 원문과 비교해 확인하세요. "
+               "교정을 끄려면 설정의 auto_correct를 false로 바꾸세요."])
+    _style_header(wd, [26, 6, 14, 45, 45, 30])
+    for row in wd.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(vertical="center", wrap_text=cell.column in (4, 5, 6))
+
+    wt = wb.create_sheet("교정된 지문")
+    wt.append(["지문명", "교정(건)", "원문", "교정 후 (분석에 사용한 본문)"])
+    for title, corrections, original, corrected in items:
+        wt.append([title, len(corrections), original, corrected])
+    _style_header(wt, [26, 8, 70, 70])
+    for row in wt.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=cell.column in (3, 4))
+    return total

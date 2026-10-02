@@ -69,7 +69,8 @@ def run_analysis(inputs, vocab_path, cfg, log=print, progress=None):
         try:
             r = analyzer.analyze(p)
             results.append(r)
-            log(f"  [{i}/{len(passages)}] {r.title} ({r.level}, {r.formula}) 정량 지수 {r.quant_rounded}")
+            fixed = f", 교정 {len(r.corrections)}건" if r.corrections else ""
+            log(f"  [{i}/{len(passages)}] {r.title} ({r.level}, {r.formula}) 정량 지수 {r.quant_rounded}{fixed}")
         except Exception as e:  # 한 지문의 오류로 전체가 멈추지 않도록
             failed.append((p.title, str(e)))
             log(f"  [{i}/{len(passages)}] {p.title}: 오류 – {e}")
@@ -88,6 +89,9 @@ def build_parser():
     ap.add_argument("--config", help=f"설정 파일 (기본: 프로그램 폴더의 {CONFIG_FILE_NAME})")
     ap.add_argument("--gui", action="store_true", help="창으로 실행")
     ap.add_argument("--no-gui", action="store_true", help="창을 띄우지 않음")
+    ap.add_argument("--no-correct", action="store_true", help="분석 전 맞춤법·띄어쓰기 자동 교정을 하지 않음")
+    ap.add_argument("--check-only", action="store_true",
+                    help="ERI는 계산하지 않고 맞춤법·띄어쓰기 교정 결과만 엑셀로 저장")
     ap.add_argument("--recalc", metavar="결과.xlsx", help="결과 엑셀의 평가자 점수로 ERI 다시 계산")
     ap.add_argument("--pilot", metavar="사전평가.xlsx", help="평가자 간 일치도 계산 ('평가자1', '평가자2'… 열)")
     ap.add_argument("--calibrate", metavar="파일", help="학년이 알려진 지문으로 회귀 계수 재추정")
@@ -113,6 +117,8 @@ def _main(args):
         cfg = ERIConfig.load(args.config, search_dirs())
     if args.level:
         cfg.default_level = args.level
+    if args.no_correct:
+        cfg.auto_correct = False
 
     if args.init_config:
         path = Path(args.config or APP_DIR / CONFIG_FILE_NAME)
@@ -152,6 +158,8 @@ def _main(args):
     missing = [str(p) for p in inputs if not Path(p).exists()]
     if missing:
         raise FileNotFoundError("지문 파일을 찾을 수 없습니다: " + ", ".join(missing))
+    if args.check_only:
+        return _check_only(inputs, cfg, args.out)
     vocab_path = resolve_vocab(args.vocab)
     results, vocab, _, _, failed = run_analysis(inputs, vocab_path, cfg)
     if not results:
@@ -226,4 +234,41 @@ def _calibrate(args, cfg):
         path = Path(args.config or APP_DIR / CONFIG_FILE_NAME)
         cfg.save(path)
         print(f"설정 파일에 저장했습니다: {path}")
+    return 0
+
+
+def run_check(inputs, cfg, log=print):
+    """맞춤법·띄어쓰기 교정만 실행 → [(지문명, 교정 목록, 원문, 교정 후)]."""
+    from kiwipiepy import Kiwi
+
+    from .analyzer import ERIAnalyzer
+    from .passages import load_passages
+    passages = load_passages(inputs)
+    if not passages:
+        raise ValueError("검사할 지문이 없습니다.")
+    cfg.auto_correct = True
+    analyzer = ERIAnalyzer(None, cfg, Kiwi())
+    items = []
+    for p in passages:
+        log_items = []
+        fixed = analyzer.preprocess(p.text, log_items)
+        items.append((p.title, log_items, p.text, fixed))
+        log(f"  {p.title}: 교정 {len(log_items)}건")
+        for c in log_items:
+            log(f"      [{c.kind}] {c.before}  →  {c.after}")
+    return items
+
+
+def _check_only(inputs, cfg, out):
+    from openpyxl import Workbook
+
+    from .report import write_corrections
+    items = run_check(inputs, cfg)
+    out = Path(out) if out else default_output_path(inputs[0]).with_name(
+        f"ERI_교정결과_{datetime.now():%Y%m%d_%H%M}.xlsx")
+    wb = Workbook()
+    wb.remove(wb.active)
+    write_corrections(wb, items)
+    wb.save(out)
+    print(f"\n교정 결과 저장: {out}")
     return 0

@@ -85,12 +85,23 @@ class Launcher:
         ttk.Entry(frm, textvariable=self.out_var).grid(row=4, column=1, sticky="ew", padx=6)
         ttk.Button(frm, text="바꾸기", command=self.pick_out).grid(row=4, column=2)
 
+        opts = ttk.Frame(frm)
+        opts.grid(row=5, column=1, sticky="w", padx=6, pady=6)
+        self.auto_fix = tk.BooleanVar(value=cfg.auto_correct)
+        ttk.Checkbutton(opts, text="분석 전 맞춤법·띄어쓰기 자동 교정 (가난 하고 → 가난하고, 됬다 → 됐다)",
+                        variable=self.auto_fix).pack(anchor="w")
         self.ask_qual = tk.BooleanVar(value=True)
-        ttk.Checkbutton(frm, text="분석 후 질적평가 점수 입력 창 열기 (평가자 3명, -3 ~ +3)",
-                        variable=self.ask_qual).grid(row=5, column=1, sticky="w", padx=6, pady=6)
+        ttk.Checkbutton(opts, text="분석 후 질적평가 점수 입력 창 열기 (평가자 3명, -3 ~ +3)",
+                        variable=self.ask_qual).pack(anchor="w")
 
-        self.run_btn = ttk.Button(frm, text="분석 시작", command=self.start)
-        self.run_btn.grid(row=6, column=1, sticky="ew", padx=6, pady=4)
+        btns2 = ttk.Frame(frm)
+        btns2.grid(row=6, column=1, sticky="ew", padx=6, pady=4)
+        btns2.columnconfigure(0, weight=3)
+        btns2.columnconfigure(1, weight=1)
+        self.run_btn = ttk.Button(btns2, text="분석 시작", command=self.start)
+        self.run_btn.grid(row=0, column=0, sticky="ew")
+        self.check_btn = ttk.Button(btns2, text="맞춤법 검사만", command=self.check_only)
+        self.check_btn.grid(row=0, column=1, sticky="ew", padx=(6, 0))
         self.progress = ttk.Progressbar(frm, mode="determinate")
         self.progress.grid(row=7, column=0, columnspan=3, sticky="ew", pady=4)
         self.log = tk.Text(frm, height=10, font=("Consolas", 9), state="disabled", bg="#f7f7f7")
@@ -141,9 +152,31 @@ class Launcher:
             messagebox.showerror("지문 파일", "분석할 지문 파일을 추가하세요.")
             return
         self.cfg.default_level = self.level_var.get()
-        self.run_btn.configure(state="disabled")
+        self.cfg.auto_correct = self.auto_fix.get()
+        self._busy(True)
         self.progress.configure(value=0)
         threading.Thread(target=self.worker, args=(inputs, vocab), daemon=True).start()
+
+    def _busy(self, busy):
+        state = "disabled" if busy else "normal"
+        self.run_btn.configure(state=state)
+        self.check_btn.configure(state=state)
+
+    def check_only(self):
+        inputs = list(self.listbox.get(0, "end"))
+        if not inputs:
+            messagebox.showerror("지문 파일", "검사할 지문 파일을 추가하세요.")
+            return
+        self._busy(True)
+
+        def work():
+            from .cli import run_check
+            try:
+                items = run_check(inputs, self.cfg, log=lambda m: self.queue.put(("log", m)))
+                self.queue.put(("checked", items))
+            except Exception as e:
+                self.queue.put(("error", e))
+        threading.Thread(target=work, daemon=True).start()
 
     def worker(self, inputs, vocab):
         from .cli import run_analysis
@@ -164,11 +197,14 @@ class Launcher:
                 elif kind == "progress":
                     self.progress.configure(value=val)
                 elif kind == "error":
-                    self.run_btn.configure(state="normal")
+                    self._busy(False)
                     messagebox.showerror("오류", str(val))
                 elif kind == "done":
-                    self.run_btn.configure(state="normal")
+                    self._busy(False)
                     self.finish(*val)
+                elif kind == "checked":
+                    self._busy(False)
+                    CorrectionWindow(self.root, val, save_to=self.out_var.get())
         except queue.Empty:
             pass
         self.root.after(100, self.poll)
@@ -179,10 +215,15 @@ class Launcher:
             return
         if failed:
             messagebox.showwarning("일부 지문 오류", "\n".join(f"{t}: {e}" for t, e in failed))
+        n_fix = sum(len(r.corrections) for r in results)
+        if n_fix:
+            self.write(f"자동 교정 {n_fix}건 – 결과 엑셀의 '교정 내역' 시트에서 확인할 수 있습니다.")
         if self.ask_qual.get():
             RatingWindow(self.root, results, analyzer, lambda: self.save(results, vocab))
         else:
             self.save(results, vocab)
+            if n_fix:
+                CorrectionWindow(self.root, _items(results))
 
     def save(self, results, vocab):
         from .report import write_report
@@ -260,6 +301,10 @@ class RatingWindow:
         bottom.pack(fill="x")
         self.agree_label = ttk.Label(bottom, text="평가자 일치도: -")
         self.agree_label.pack(side="left")
+        n_fix = sum(len(r.corrections) for r in results)
+        if n_fix:
+            ttk.Button(bottom, text=f"교정 내역 보기 ({n_fix}건)",
+                       command=lambda: CorrectionWindow(win, _items(results))).pack(side="left", padx=12)
         ttk.Button(bottom, text="저장", command=self.save).pack(side="right")
         ttk.Button(bottom, text="질적평가 없이 저장", command=self.skip).pack(side="right", padx=6)
         if self.entries:
@@ -311,6 +356,106 @@ class RatingWindow:
             self.analyzer.apply_qualitative(res, [])
         if self.on_saved() is not False:
             self.win.destroy()
+
+
+def _items(results):
+    return [(r.title, r.corrections, r.original_text, r.corrected_text) for r in results]
+
+
+class CorrectionWindow:
+    """자동 교정 내역 보기. 지운 글자는 빨간 취소선, 넣은 글자는 빨간 밑줄, 공백은 ␣로 표시."""
+
+    def __init__(self, master, items, save_to=None):
+        from difflib import SequenceMatcher
+        self.items = items
+        self.master = master
+        win = self.win = tk.Toplevel(master)
+        total = sum(len(c) for _, c, _, _ in items)
+        win.title(f"맞춤법·띄어쓰기 교정 내역 ({total}건)")
+        win.geometry("820x560")
+        win.transient(master)
+        self.prev_grab = master.grab_current()
+        win.grab_set()
+        win.protocol("WM_DELETE_WINDOW", self.close)
+
+        top = ttk.Frame(win, padding=(12, 8))
+        top.pack(fill="x")
+        ttk.Label(top, text="빨간 취소선 = 지운 글자,  빨간 밑줄 = 넣은 글자,  ␣ = 공백,  ⏎ = 줄바꿈",
+                  foreground="#555").pack(anchor="w")
+        ttk.Label(top, text="자동 교정은 띄어쓰기와 자주 틀리는 표기만 다룹니다. 원문과 비교해 꼭 확인하세요.",
+                  foreground="#555").pack(anchor="w")
+
+        frame = ttk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=12)
+        text = tk.Text(frame, wrap="word", font=("맑은 고딕", 10), padx=8, pady=6)
+        sb = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=sb.set)
+        text.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        text.tag_configure("title", font=("맑은 고딕", 11, "bold"), foreground="#1F3864", spacing1=8)
+        text.tag_configure("kind", foreground="#555")
+        text.tag_configure("del", foreground="#C00000", overstrike=True)
+        text.tag_configure("ins", foreground="#C00000", underline=True)
+
+        vis = lambda t: t.replace(" ", "␣")
+        for title, corrections, _, _ in items:
+            text.insert("end", f"{title}  –  {len(corrections)}건\n", "title")
+            if not corrections:
+                text.insert("end", "    고친 곳이 없습니다.\n")
+            for i, c in enumerate(corrections, 1):
+                text.insert("end", f"  {i}. [{c.kind}] {c.note}\n", "kind")
+                text.insert("end", "      전: ")
+                ops = SequenceMatcher(None, c.before, c.after, autojunk=False).get_opcodes()
+                for op, i1, i2, _, _ in ops:
+                    if i2 > i1:
+                        text.insert("end", c.before[i1:i2] if op == "equal" else vis(c.before[i1:i2]),
+                                    () if op == "equal" else "del")
+                text.insert("end", "\n      후: ")
+                for op, _, _, j1, j2 in ops:
+                    if j2 > j1:
+                        text.insert("end", c.after[j1:j2] if op == "equal" else vis(c.after[j1:j2]),
+                                    () if op == "equal" else "ins")
+                text.insert("end", "\n")
+        text.configure(state="disabled")
+
+        bottom = ttk.Frame(win, padding=10)
+        bottom.pack(fill="x")
+        ttk.Button(bottom, text="닫기", command=self.close).pack(side="right")
+        if save_to is not None:
+            ttk.Button(bottom, text="엑셀로 저장", command=self.save).pack(side="right", padx=6)
+            self.save_to = save_to
+
+    def save(self):
+        from datetime import datetime
+
+        from openpyxl import Workbook
+
+        from .report import write_corrections
+        default = Path(self.save_to).with_name(f"ERI_교정결과_{datetime.now():%Y%m%d_%H%M}.xlsx")
+        p = filedialog.asksaveasfilename(parent=self.win, title="교정 결과 저장", defaultextension=".xlsx",
+                                         initialdir=str(default.parent), initialfile=default.name,
+                                         filetypes=[("엑셀", "*.xlsx")])
+        if not p:
+            return
+        wb = Workbook()
+        wb.remove(wb.active)
+        write_corrections(wb, self.items)
+        try:
+            wb.save(p)
+        except PermissionError:
+            messagebox.showerror("저장 실패", "파일이 열려 있으면 닫고 다시 시도하세요.", parent=self.win)
+            return
+        if messagebox.askyesno("저장 완료", f"{p}\n\n파일을 열까요?", parent=self.win):
+            _open_file(p)
+
+    def close(self):
+        self.win.grab_release()
+        self.win.destroy()
+        if self.prev_grab is not None:
+            try:
+                self.prev_grab.grab_set()
+            except tk.TclError:
+                pass
 
 
 def launch(cfg, args):

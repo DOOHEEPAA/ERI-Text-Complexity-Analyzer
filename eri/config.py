@@ -43,6 +43,8 @@ class ERIConfig:
     join_wrapped_lines: bool = True
     # ㉠ ⓐ ① 같은 문제용 기호를 지울지
     remove_question_markers: bool = True
+    # 분석 전 맞춤법·띄어쓰기 자동 교정 (가난 하고 → 가난하고, 됬다 → 됐다). 교정 내역은 결과에 표시
+    auto_correct: bool = True
     # 초등 공식의 Y를 '100어절당 문장 수'로 환산할지 (특허 예시는 환산하지 않음)
     normalize_sentence_count: bool = False
 
