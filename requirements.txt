@@ -1,0 +1,5 @@
+kiwipiepy>=0.17
+openpyxl>=3.1
+numpy>=1.24
+# 테스트
+# pytest>=7
