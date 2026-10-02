@@ -33,11 +33,15 @@ Python 3.10 이상이 필요합니다.
 진짜 파이썬을 찾아 처음 한 번 라이브러리를 자동으로 설치한 뒤 프로그램 창을 엽니다.
 파이썬이 없으면 설치 방법을 안내하고 다운로드 페이지를 열어 줍니다.
 
-직접 설치하려면:
+직접 설치하려면 (Windows는 `py`, macOS/리눅스는 `python3`):
 
 ```bash
-pip install -r requirements.txt
+py -m pip install -r requirements.txt
 ```
+
+> `pip` 명령만 따로 치면 "'pip' 용어가 … 인식되지 않습니다" 오류가 날 수 있습니다.
+> 파이썬이 설치되지 않았거나 PATH에 등록되지 않은 경우입니다. 항상 `py -m pip …` 형태로 쓰세요.
+> `py`도 인식되지 않으면 파이썬이 설치되지 않은 것이므로 아래 1번부터 진행하세요.
 
 ### 실행해도 아무 반응이 없을 때 ('Python'만 출력되고 끝남)
 
@@ -147,6 +151,6 @@ python run_eri.py --init-config                      # 설정 파일 eri_config.
 ## 8. 테스트
 
 ```bash
-pip install pytest
-python -m pytest tests
+py -m pip install pytest
+py -m pytest tests
 ```
